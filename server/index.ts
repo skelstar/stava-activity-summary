@@ -72,6 +72,7 @@ interface StravaSegment {
   elevation_high: number
   elevation_low: number
   climb_category: number
+  starred: boolean
 }
 
 interface StravaSegmentEffort {
@@ -213,6 +214,7 @@ app.get('/api/strava/latest-activity', async (_req: Request, res: Response) => {
         average_grade: effort.segment.average_grade,
         elevation_high: effort.segment.elevation_high,
         elevation_low: effort.segment.elevation_low,
+        starred: effort.segment.starred ?? false,
       },
     }))
 
@@ -229,6 +231,49 @@ app.get('/api/strava/latest-activity', async (_req: Request, res: Response) => {
       max_heartrate: activity.max_heartrate ?? null,
       segments,
     })
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' })
+  }
+})
+
+app.get('/api/strava/segment/:segmentId/efforts', async (req: Request, res: Response) => {
+  try {
+    const token = await getStravaAccessToken()
+    const { segmentId } = req.params
+    const r = await fetch(
+      `https://www.strava.com/api/v3/segment_efforts?segment_id=${segmentId}&per_page=200`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (!r.ok) { res.status(502).json({ error: `Strava API error: ${r.status}` }); return }
+    const efforts = await r.json() as Array<{
+      id: number
+      elapsed_time: number
+      moving_time: number
+      start_date_local: string
+      average_heartrate?: number
+      activity: { id: number }
+    }>
+    res.json(efforts.map((e) => ({
+      id: e.id,
+      elapsed_time: e.elapsed_time,
+      start_date_local: e.start_date_local,
+      average_heartrate: e.average_heartrate ?? null,
+      activity_id: e.activity.id,
+    })))
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' })
+  }
+})
+
+app.get('/api/strava/activity/:activityId', async (req: Request, res: Response) => {
+  try {
+    const token = await getStravaAccessToken()
+    const r = await fetch(`https://www.strava.com/api/v3/activities/${req.params.activityId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) { res.status(502).json({ error: `Strava API error: ${r.status}` }); return }
+    const a = await r.json() as { name: string; description?: string }
+    res.json({ name: a.name, description: a.description ?? '' })
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' })
   }
